@@ -1,5 +1,5 @@
 ---
-title: "Report MovieLens Project"
+title: "Report On MovieLens Project"
 author: "Ayman Tuffaha"
 date: "28/09/2021"
 output:
@@ -7,7 +7,6 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-#load("~/Documents/GitHub/edX/9-Capstone/MovieLensProject/data.RData")
 library(tidyverse)
 library(DescTools)
 library(tinytex)
