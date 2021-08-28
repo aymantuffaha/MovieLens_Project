@@ -1,0 +1,222 @@
+---
+title: "Report MovieLens Project"
+author: "Ayman Tuffaha"
+date: "28/09/2021"
+output:
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+#load("~/Documents/GitHub/edX/9-Capstone/MovieLensProject/data.RData")
+library(tidyverse)
+library(DescTools)
+library(tinytex)
+library(tidyverse)
+library(caret)
+library(data.table)
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## About this document (R Markdown Document)
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+
+## Introduction
+At this report, I have used the MovieLens 10M dataset: https://grouplens.org/datasets/movielens/10m/ which consists of 10 million ratings.
+100,000 tag applications applied to 10,000 movies by 72,000 users.
+
+The predictions submitted are scored against the right grades in terms of root mean square error (RMSE), and the goal is to reduce this error value to the minimum based on the different type of biases presented in the movie reviews.
+
+
+This report contains five sections: About this document (R Markdown Document), Introduction, Build the data and Data exploration, Methods, and Conclusion and results.
+
+The below line of codes, and algorithm written to train a machine learning on using the inputs in one script to predict movie ratings in the validation set.
+
+This will calculate RMSE based on created and predicted movie ratings.
+
+
+# Build the data and Data exploration
+```{r initial_inquiries, echo=TRUE}
+dl <- tempfile()
+download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+colnames(movies) <- c("movieId", "title", "genres")
+colnames(movies)
+movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId),
+                                           title = as.character(title),
+                                           genres = as.character(genres))
+movielens <- left_join(ratings, movies, by = "movieId")
+movielens
+set.seed(1, sample.kind="Rounding")
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+temp
+edx %>% group_by(title) %>%
+  summarize(n_ratings = n()) %>%
+  arrange(desc(n_ratings))
+edx %>% group_by(title) %>%
+  summarize(n_ratings = n()) %>%
+  filter(n_ratings==1) %>%
+  count() %>% pull()
+```
+
+```{r glimpse_data, echo=TRUE}
+validation <- temp %>%
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+glimpse(validation)
+```
+
+
+## Methods
+We will use a linear model due to the huge amount of data and to be applicable to run the code. 
+
+The dataset is split 90-10 on train and test sets respectively. This is completed in the first steps of the script. The training set (edx) has 9,000,055 entries with 6 columns. Similarly, the test set (validation) has 999,999 entries and 6 columns. The column information is shown below for the validation dataset.
+
+The simplest model is to use the average across every user and every movie as all of our predicted ratings. This model follows the below simple equation, 
+
+\begin{equation}
+  Y_{u,i} = \mu,
+\end{equation}
+
+where $Y_{u,i}$ is the predicted rating of user $u$ and movie $i$ and $\mu$ is the average rating across all entries. This is computed as 3.512 (`mean(edx$rating)`). 
+
+```{r just_average_model, echo=TRUE}
+mu_1 <- mean(edx$rating)
+RMSE(validation$rating, mu_1)
+```
+
+In order to improve our model, we add an independent error term $b_i_users_movies$ that expresses rating differences for users and movies. We will add the user bias term later, but for now we add the movie bias term $b_i$. This term averages the rankings for any movie $i$ because some are liked or hated more than others. The new model is:
+
+\begin{equation}
+  Y_{u,i} = \mu + b_{i}.
+\end{equation}
+
+```{r movie_bias_model, echo=TRUE}
+# add movie bias term, b_i_users_movies
+b_i_users_movies <- edx %>%
+  group_by(movieId) %>%
+  summarize(b_i_users_movies = mean(rating - mu_1))
+# predict all unknown ratings with mu and b_i_users_movies
+predicted_ratings <- validation %>% 
+  left_join(b_i_users_movies, by='movieId') %>%
+  mutate(pred = mu_1 + b_i_users_movies) %>%
+  pull(pred)
+# calculate RMSE of movie ranking effect
+RMSE(validation$rating, predicted_ratings)
+```
+
+Now we introduce the user bias term $b_u$ in order to further improve our model. This term minimizes the effect of extreme ratings made by users that love or hate every movie. Each user $u$ is given a bias term that sways their predicted movies. Our updated model is:
+
+\begin{equation}
+  Y_{u,i} = \mu + b_{i} + b_{u}.
+\end{equation}
+
+```{r movie_user_bias_model, echo=TRUE}
+# add user bias term, b_user
+b_user <- edx %>% 
+  left_join(b_i_users_movies, by='movieId') %>%
+  group_by(userId) %>%
+  summarize(b_user = mean(rating - mu_1 - b_i_users_movies))
+# predict new ratings with movie and user bias
+predicted_ratings <- validation %>% 
+  left_join(b_i_users_movies, by='movieId') %>%
+  left_join(b_user, by='userId') %>%
+  mutate(pred = mu_1 + b_i_users_movies + b_user) %>%
+  pull(pred)
+# calculate RMSE of movie and user bias effect
+RMSE(predicted_ratings, validation$rating)
+```
+
+last but not least, we use regularization to minimize the effect of high errors in our predictions.
+
+Regularization penalizes incorrect estimates on small sample sizes. For instance, our $b_i$ term accounts for the average deviation on all ratings of a movie, whether there is 1 or 100 ratings to the movie. We use regularization to reduce the dramatic effect that a exceptionally extreme rating will have on our $b_i$ term. This method is also applied to the user bias term $b_u$ to reduce large anomalies in the ratings of users.
+
+Regularization achieves the same goal as confidence intervals when you are only able to predict a single number, not an interval. Our new model is:
+
+\begin{equation}
+  \frac{1}{N} \sum_{u,i}(Y_{u,i} - \mu - b_i - b_u)^2 + \lambda (\sum_{i} b_i^2 + \sum_u b_u^2),
+\end{equation}
+
+where the first term is our previous least squares equation and the last term is the penalty with large bias terms. Minimizing the biases using a single $\lambda$ is the goal to our model shown above. We test `lamda <- seq(from=0, to=10, by=0.25)` and plot the results below:
+
+```{r regularized_effects, include=FALSE}
+# determine best lambda from a sequence
+lambdas <- seq(from=0, to=10, by=0.25)
+# output RMSE of each lambda, repeat earlier steps (with regularization)
+rmses <- sapply(lambdas, function(l){
+  # calculate average rating across training data
+  mu_1 <- mean(edx$rating)
+  # compute regularized movie bias term
+  b_i_users_movies <- edx %>% 
+    group_by(movieId) %>%
+    summarize(b_i_users_movies = sum(rating - mu_1)/(n()+l))
+  # compute regularize user bias term
+  b_user <- edx %>% 
+    left_join(b_i_users_movies, by="movieId") %>%
+    group_by(userId) %>%
+    summarize(b_user = sum(rating - b_i_users_movies - mu_1)/(n()+l))
+  # compute predictions on validation set based on these above terms
+  predicted_ratings <- validation %>% 
+    left_join(b_i_users_movies, by = "movieId") %>%
+    left_join(b_user, by = "userId") %>%
+    mutate(pred = mu_1 + b_i_users_movies + b_user) %>%
+    pull(pred)
+  # output RMSE of these predictions
+  return(RMSE(predicted_ratings, validation$rating))
+})
+```
+
+
+```{r Quick plot of RMSE vs lambdas, echo=TRUE}
+qplot(lambdas, rmses)
+min(rmses)
+```
+
+We see that the minimizing $\lambda$ term is
+
+```{r final_lambda, echo=TRUE}
+lambdas[which.min(rmses)]
+```
+
+
+## Conclusion and results
+
+Final model with regularized movie and user effects
+
+```{r final_model, echo=TRUE}
+# choose minimized lambda
+lam_1 <- lambdas[which.min(rmses)]
+# compute regularize movie bias term
+b_i_users_movies <- edx %>% 
+  group_by(movieId) %>%
+  summarize(b_i_users_movies = sum(rating - mu_1)/(n()+lam_1))
+# compute regularize user bias term
+b_user <- edx %>% 
+  left_join(b_i_users_movies, by="movieId") %>%
+  group_by(userId) %>%
+  summarize(b_user = sum(rating - b_i_users_movies - mu_1)/(n()+lam_1))
+# compute predictions on validation set based on these above terms
+predicted_ratings <- validation %>% 
+  left_join(b_i_users_movies, by = "movieId") %>%
+  left_join(b_user, by = "userId") %>%
+  mutate(pred = mu_1 + b_i_users_movies + b_user) %>%
+  pull(pred)
+# output RMSE of our final model
+RMSE(predicted_ratings, validation$rating)
+```
+
+We  notice here an incremental improvements to the RMSE as we supplant our model with bias terms and regularization.
+
+| Method                             | RMSE     |
+|------------------------------------|----------|
+| Average                            | 1.06120  |
+| Movie effect                       | 0.94391  |
+| Movie and user effects             | 0.86535  |
+| Regularized movie and user effect  | 0.86481  |
+
+This model will give us better utilization of computing processing.

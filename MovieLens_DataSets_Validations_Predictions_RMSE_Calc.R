@@ -46,7 +46,7 @@ edx <- movielens[-test_index,]
 temp <- movielens[test_index,]
 temp
 # Make sure userId and movieId in validation set are also in edx set
-validation <- temp %>% 
+validation <- temp %>%
   semi_join(edx, by = "movieId") %>%
   semi_join(edx, by = "userId")
 
@@ -61,12 +61,7 @@ rm(dl, ratings, movies, test_index, temp, movielens, removed)
 # August 27, 2021
 # Ayman Tuffaha
 # 
-# Data Cleaning and, data exploration and Data Visulization #In order to determine if 
-# age of the movie is a factor for predicting rating, I extracted the premier date of
-# the movie, and then calculated the age of the movie. I will also looked at individual 
-# age of the movie. I will also looked at individual genres for genre effect, as well as,
-# effects of user ratings. 
-# 
+#
 # The below line of codes, and algorithm written to train a machine learning on 
 # using the inputs in one script to predict movie ratings in the validation set.
 # This will calculate RMSE based on created and predicted movie ratings.
@@ -89,32 +84,32 @@ n_distinct(edx$userId)
 ##########################
 
 # calculate the overall average rating on the training dataset
-mu <- mean(edx$rating)
-mu
+mu_1 <- mean(edx$rating)
+mu_1
 
-# predict all unknown ratings with mu and calculate the RMSE
-RMSE(validation$rating, mu)
+# predict all unknown ratings with mu_1 and calculate the RMSE
+RMSE(validation$rating, mu_1)
 
 ######################
 # Movie effect method
 ######################
 
-# add average ranking term, b_i
-b_i <- edx %>%
+# add average ranking term, b_i_users_movie
+b_i_users_movie <- edx %>%
   group_by(movieId) %>%
-  summarize(b_i = mean(rating - mu))
+  summarize(b_i_users_movie = mean(rating - mu_1))
 
-# predict all unknown ratings with mu and b_i
+# predict all unknown ratings with mu_1 and b_i_users_movie
 predicted_ratings <- validation %>% 
-  left_join(b_i, by='movieId') %>%
-  mutate(pred = mu + b_i) %>%
+  left_join(b_i_users_movie, by='movieId') %>%
+  mutate(pred = mu_1 + b_i_users_movie) %>%
   pull(pred)
 
 # calculate RMSE of movie ranking effect
 RMSE(validation$rating, predicted_ratings)
 
-# plot the distribution of b_i's
-qplot(b_i, data = b_i, bins = 15, color = I("black"))
+# plot the distribution of b_i_users_movie's
+qplot(b_i_users_movie, data = b_i_users_movie, bins = 15, color = I("black"))
 
 
 
@@ -122,18 +117,18 @@ qplot(b_i, data = b_i, bins = 15, color = I("black"))
 # Movie and user effect method
 ###############################
 
-# compute user bias term, b_u
-b_u <- edx %>% 
-  left_join(b_i, by='movieId') %>%
+# compute user bias term, b_user
+b_user <- edx %>% 
+  left_join(b_i_users_movie, by='movieId') %>%
   group_by(userId) %>%
-  summarize(b_u = mean(rating - mu - b_i))
+  summarize(b_user = mean(rating - mu_1 - b_i_users_movie))
 
-b_u
+b_user
 # predict new ratings with movie and user bias
 predicted_ratings <- validation %>% 
-  left_join(b_i, by='movieId') %>%
-  left_join(b_u, by='userId') %>%
-  mutate(pred = mu + b_i + b_u) %>%
+  left_join(b_i_users_movie, by='movieId') %>%
+  left_join(b_user, by='userId') %>%
+  mutate(pred = mu_1 + b_i_users_movie + b_user) %>%
   pull(pred)
 
 
@@ -152,21 +147,21 @@ lambdas <- seq(from=0, to=10, by=0.25)
 # output RMSE of each lambda, repeat earlier steps (with regularization)
 rmses <- sapply(lambdas, function(l){
   # calculate average rating across training data
-  mu <- mean(edx$rating)
+  mu_1 <- mean(edx$rating)
   # compute regularized movie bias term
-  b_i <- edx %>% 
+  b_i_users_movie <- edx %>% 
     group_by(movieId) %>%
-    summarize(b_i = sum(rating - mu)/(n()+l))
+    summarize(b_i_users_movie = sum(rating - mu_1)/(n()+l))
   # compute regularize user bias term
-  b_u <- edx %>% 
-    left_join(b_i, by="movieId") %>%
+  b_user <- edx %>% 
+    left_join(b_i_users_movie, by="movieId") %>%
     group_by(userId) %>%
-    summarize(b_u = sum(rating - b_i - mu)/(n()+l))
+    summarize(b_user = sum(rating - b_i_users_movie - mu_1)/(n()+l))
   # compute predictions on validation set based on these above terms
   predicted_ratings <- validation %>% 
-    left_join(b_i, by = "movieId") %>%
-    left_join(b_u, by = "userId") %>%
-    mutate(pred = mu + b_i + b_u) %>%
+    left_join(b_i_users_movie, by = "movieId") %>%
+    left_join(b_user, by = "userId") %>%
+    mutate(pred = mu_1 + b_i_users_movie + b_user) %>%
     pull(pred)
   # output RMSE of these predictions
   return(RMSE(predicted_ratings, validation$rating))
@@ -184,21 +179,21 @@ min(rmses)
 ######################################################
 
 # The final linear model with the minimizing lambda
-lam <- lambdas[which.min(rmses)]
+lam_1 <- lambdas[which.min(rmses)]
 
-b_i <- edx %>% 
+b_i_users_movie <- edx %>% 
   group_by(movieId) %>%
-  summarize(b_i = sum(rating - mu)/(n()+lam))
+  summarize(b_i_users_movie = sum(rating - mu_1)/(n()+lam_1))
 # compute regularize user bias term
-b_u <- edx %>% 
-  left_join(b_i, by="movieId") %>%
+b_user <- edx %>% 
+  left_join(b_i_users_movie, by="movieId") %>%
   group_by(userId) %>%
-  summarize(b_u = sum(rating - b_i - mu)/(n()+lam))
+  summarize(b_user = sum(rating - b_i_users_movie - mu_1)/(n()+lam_1))
 # compute predictions on validation set based on these above terms
 predicted_ratings <- validation %>% 
-  left_join(b_i, by = "movieId") %>%
-  left_join(b_u, by = "userId") %>%
-  mutate(pred = mu + b_i + b_u) %>%
+  left_join(b_i_users_movie, by = "movieId") %>%
+  left_join(b_user, by = "userId") %>%
+  mutate(pred = mu_1 + b_i_users_movie + b_user) %>%
   pull(pred)
 # output RMSE of these predictions
 RMSE(predicted_ratings, validation$rating)
